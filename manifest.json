@@ -1,0 +1,18 @@
+{
+  "name": "AddamCO Content Engine",
+  "short_name": "AddamCO",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#8F00FF",
+  "theme_color": "#8F00FF",
+  "description": "Anyone can run ads. Few get watched. We build Organic Content Engines.",
+  "orientation": "portrait-primary",
+  "icons": [
+     {
+       "src": "favicon.png",
+       "sizes": "512x512",
+       "type": "image/png",
+       "purpose": "any maskable"
+     }
+   ]
+}
