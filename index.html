@@ -291,10 +291,16 @@
 ];
 
             // Distribute ALL unique videos across columns to ensure variety
-            const col1 = [...videoPool, ...videoPool]; // Original order
-            const col2 = [...videoPool].reverse().concat([...videoPool].reverse()); // Reverse order
-            const col3 = [...videoPool.slice(4), ...videoPool.slice(0, 4), ...videoPool]; // Shifted order
-            const col4 = [...videoPool.slice(2), ...videoPool.slice(0, 2)].concat([...videoPool]); // Another shifted order
+            const col1Base = [...videoPool]; // Original order
+            const col2Base = [...videoPool].reverse(); // Reverse order
+            const col3Base = [...videoPool.slice(4), ...videoPool.slice(0, 4)]; // Shifted order
+            const col4Base = [...videoPool.slice(2), ...videoPool.slice(0, 2)]; // Another shifted order
+
+            // Duplicate each base list exactly so the -50% loop point is seamless.
+            const col1 = [...col1Base, ...col1Base];
+            const col2 = [...col2Base, ...col2Base];
+            const col3 = [...col3Base, ...col3Base];
+            const col4 = [...col4Base, ...col4Base];
 
             useEffect(() => {
                 const handleScroll = () => setScrolled(window.scrollY > 50);
