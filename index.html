@@ -121,37 +121,77 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        const MAX_ACTIVE_VIDEOS = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 4 : 8;
+        const activeVideos = new Set();
+
+        const requestVideoSlot = (id) => {
+            if (activeVideos.has(id)) return true;
+            if (activeVideos.size >= MAX_ACTIVE_VIDEOS) return false;
+            activeVideos.add(id);
+            return true;
+        };
+
+        const releaseVideoSlot = (id) => {
+            activeVideos.delete(id);
+        };
+
         // --- VIDEO ITEM COMPONENT ---
         const VideoItem = ({ src, poster, aspect = 'vertical', onClick }) => {
             const containerRef = useRef(null);
             const videoRef = useRef(null);
             const [isLoaded, setIsLoaded] = useState(false);
+            const [isVisible, setIsVisible] = useState(false);
             const [shouldLoad, setShouldLoad] = useState(false);
             const [error, setError] = useState(false);
+            const slotIdRef = useRef(`slot-${Math.random().toString(36).slice(2)}`);
 
             useEffect(() => {
                 const observer = new IntersectionObserver(
                     ([entry]) => {
-                        if (entry.isIntersecting) {
-                            if (window.requestIdleCallback) {
-                                requestIdleCallback(() => setShouldLoad(true));
-                            } else {
-                                setShouldLoad(true);
-                            }
+                        setIsVisible(entry.isIntersecting);
+                        if (!entry.isIntersecting && videoRef.current) {
+                            videoRef.current.pause();
+                            releaseVideoSlot(slotIdRef.current);
                         }
                     },
-                    { rootMargin: '200px', threshold: 0.01 }
+                    { rootMargin: '250px', threshold: 0.05 }
                 );
 
                 if (containerRef.current) observer.observe(containerRef.current);
-                return () => observer.disconnect();
+                return () => {
+                    observer.disconnect();
+                    releaseVideoSlot(slotIdRef.current);
+                };
             }, []);
 
             useEffect(() => {
-                if (shouldLoad && videoRef.current) {
-                    videoRef.current.play().catch(() => {});
+                if (!isVisible) return;
+
+                const tryStartPlayback = () => {
+                    if (!requestVideoSlot(slotIdRef.current)) {
+                        setTimeout(tryStartPlayback, 120);
+                        return;
+                    }
+
+                    setShouldLoad(true);
+                    if (videoRef.current) {
+                        videoRef.current.play().catch(() => {});
+                    }
+                };
+
+                if (window.requestIdleCallback) {
+                    requestIdleCallback(tryStartPlayback, { timeout: 200 });
+                } else {
+                    tryStartPlayback();
                 }
-            }, [shouldLoad]);
+
+                return () => releaseVideoSlot(slotIdRef.current);
+            }, [isVisible]);
+
+            useEffect(() => {
+                if (!videoRef.current || !isVisible) return;
+                videoRef.current.play().catch(() => {});
+            }, [shouldLoad, isVisible]);
 
             const paddingBottom = aspect === 'vertical' ? '177.77%' : '56.25%';
 
@@ -179,9 +219,10 @@
                             muted
                             loop
                             playsInline
-                            preload="metadata"
+                            preload="none"
                             onLoadedData={() => setIsLoaded(true)}
                             onError={() => setError(true)}
+                            onCanPlay={() => videoRef.current && videoRef.current.play().catch(() => {})}
                             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 transform-gpu ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
                             style={{ backfaceVisibility: 'hidden' }}
                         />
