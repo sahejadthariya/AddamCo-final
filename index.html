@@ -122,6 +122,32 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+        const MAX_ACTIVE_VIDEOS = 8;
+        const activeVideoSet = new Set();
+
+        const tryPlayVideo = async (video) => {
+            if (!video || video.readyState < 2) return false;
+
+            try {
+                await video.play();
+                return !video.paused;
+            } catch {
+                return false;
+            }
+        };
+
+        const enforcePlaybackBudget = () => {
+            if (activeVideoSet.size <= MAX_ACTIVE_VIDEOS) return;
+
+            const allVideos = Array.from(activeVideoSet);
+            allVideos
+                .sort((a, b) => (Number(b.dataset.lastVisible) || 0) - (Number(a.dataset.lastVisible) || 0))
+                .slice(MAX_ACTIVE_VIDEOS)
+                .forEach((video) => {
+                    video.pause();
+                    activeVideoSet.delete(video);
+                });
+        };
 
         // --- VIDEO ITEM COMPONENT ---
         const VideoItem = ({ src, poster, aspect = 'vertical', onClick }) => {
@@ -130,9 +156,10 @@
             const [isLoaded, setIsLoaded] = useState(false);
             const [shouldLoad, setShouldLoad] = useState(false);
             const [error, setError] = useState(false);
+            const [isVisible, setIsVisible] = useState(false);
 
             useEffect(() => {
-                const observer = new IntersectionObserver(
+                const lazyObserver = new IntersectionObserver(
                     ([entry]) => {
                         if (entry.isIntersecting) {
                             if (window.requestIdleCallback) {
@@ -145,15 +172,63 @@
                     { rootMargin: '200px', threshold: 0.01 }
                 );
 
-                if (containerRef.current) observer.observe(containerRef.current);
-                return () => observer.disconnect();
+                const visibilityObserver = new IntersectionObserver(
+                    ([entry]) => {
+                        if (entry.isIntersecting) {
+                            setIsVisible(true);
+                            return;
+                        }
+                        setIsVisible(false);
+                    },
+                    { rootMargin: '120px', threshold: 0.15 }
+                );
+
+                if (containerRef.current) {
+                    lazyObserver.observe(containerRef.current);
+                    visibilityObserver.observe(containerRef.current);
+                }
+
+                return () => {
+                    lazyObserver.disconnect();
+                    visibilityObserver.disconnect();
+                };
             }, []);
 
             useEffect(() => {
-                if (shouldLoad && videoRef.current) {
-                    videoRef.current.play().catch(() => {});
+                let retryTimer;
+                const video = videoRef.current;
+
+                if (!shouldLoad || !video) return undefined;
+
+                const keepAlive = async () => {
+                    if (!videoRef.current || !isVisible) return;
+                    video.dataset.lastVisible = String(Date.now());
+                    const played = await tryPlayVideo(video);
+
+                    if (played) {
+                        activeVideoSet.add(video);
+                        enforcePlaybackBudget();
+                        return;
+                    }
+
+                    retryTimer = setTimeout(keepAlive, 1000);
+                };
+
+                if (isVisible) {
+                    keepAlive();
+                } else {
+                    video.pause();
+                    activeVideoSet.delete(video);
                 }
-            }, [shouldLoad]);
+
+                return () => {
+                    if (retryTimer) clearTimeout(retryTimer);
+                };
+            }, [shouldLoad, isVisible]);
+
+            useEffect(() => () => {
+                if (videoRef.current) activeVideoSet.delete(videoRef.current);
+            }, []);
 
             const paddingBottom = aspect === 'vertical' ? '177.77%' : '56.25%';
 
@@ -182,8 +257,19 @@
                             loop
                             playsInline
                             preload="metadata"
+                            disablePictureInPicture
+                            disableRemotePlayback
                             onLoadedData={() => setIsLoaded(true)}
                             onError={() => setError(true)}
+                            onStalled={() => {
+                                const video = videoRef.current;
+                                if (!video || !isVisible) return;
+                                setTimeout(() => {
+                                    if (videoRef.current === video && isVisible) {
+                                        tryPlayVideo(video);
+                                    }
+                                }, 300);
+                            }}
                             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 transform-gpu ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
                             style={{ backfaceVisibility: 'hidden' }}
                         />
