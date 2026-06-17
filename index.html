@@ -130,6 +130,9 @@
             const [isLoaded, setIsLoaded] = useState(false);
             const [shouldLoad, setShouldLoad] = useState(false);
             const [error, setError] = useState(false);
+            const [videoSrc, setVideoSrc] = useState(src);
+            const retriesRef = useRef(0);
+            const MAX_RETRIES = 2;
 
             useEffect(() => {
                 const observer = new IntersectionObserver(
@@ -150,10 +153,49 @@
             }, []);
 
             useEffect(() => {
-                if (shouldLoad && videoRef.current) {
-                    videoRef.current.play().catch(() => {});
-                }
+                if (!shouldLoad || !videoRef.current) return;
+
+                const video = videoRef.current;
+                const playWhenReady = () => {
+                    video.play().catch(() => {});
+                };
+
+                playWhenReady();
+                video.addEventListener('canplay', playWhenReady);
+                video.addEventListener('stalled', playWhenReady);
+
+                const visibilityObserver = new IntersectionObserver(
+                    ([entry]) => {
+                        if (!videoRef.current) return;
+                        if (entry.isIntersecting) {
+                            videoRef.current.play().catch(() => {});
+                        } else {
+                            videoRef.current.pause();
+                        }
+                    },
+                    { threshold: 0.1 }
+                );
+
+                if (containerRef.current) visibilityObserver.observe(containerRef.current);
+
+                return () => {
+                    video.removeEventListener('canplay', playWhenReady);
+                    video.removeEventListener('stalled', playWhenReady);
+                    visibilityObserver.disconnect();
+                };
             }, [shouldLoad]);
+
+            const handleVideoError = () => {
+                if (retriesRef.current < MAX_RETRIES) {
+                    retriesRef.current += 1;
+                    const retryToken = `retry=${Date.now()}-${retriesRef.current}`;
+                    const separator = src.includes('?') ? '&' : '?';
+                    setVideoSrc(`${src}${separator}${retryToken}`);
+                    setError(false);
+                    return;
+                }
+                setError(true);
+            };
 
             const paddingBottom = aspect === 'vertical' ? '177.77%' : '56.25%';
 
@@ -177,13 +219,14 @@
                     {shouldLoad && (
                         <video
                             ref={videoRef}
-                            src={src}
+                            src={videoSrc}
                             muted
                             loop
                             playsInline
-                            preload="metadata"
+                            preload="auto"
                             onLoadedData={() => setIsLoaded(true)}
-                            onError={() => setError(true)}
+                            onCanPlay={(e) => e.currentTarget.play().catch(() => {})}
+                            onError={handleVideoError}
                             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 transform-gpu ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
                             style={{ backfaceVisibility: 'hidden' }}
                         />
@@ -250,10 +293,16 @@
 ];
 
             // Distribute ALL unique videos across columns to ensure variety
-            const col1 = [...videoPool, ...videoPool]; // Original order
-            const col2 = [...videoPool].reverse().concat([...videoPool].reverse()); // Reverse order
-            const col3 = [...videoPool.slice(4), ...videoPool.slice(0, 4), ...videoPool]; // Shifted order
-            const col4 = [...videoPool.slice(2), ...videoPool.slice(0, 2)].concat([...videoPool]); // Another shifted order
+            const col1Base = [...videoPool]; // Original order
+            const col2Base = [...videoPool].reverse(); // Reverse order
+            const col3Base = [...videoPool.slice(4), ...videoPool.slice(0, 4)]; // Shifted order
+            const col4Base = [...videoPool.slice(2), ...videoPool.slice(0, 2)]; // Another shifted order
+
+            // Duplicate each base list exactly so the -50% loop point is seamless.
+            const col1 = [...col1Base, ...col1Base];
+            const col2 = [...col2Base, ...col2Base];
+            const col3 = [...col3Base, ...col3Base];
+            const col4 = [...col4Base, ...col4Base];
 
             useEffect(() => {
                 const handleScroll = () => setScrolled(window.scrollY > 50);
